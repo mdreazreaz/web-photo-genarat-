@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Photo Generator (Bangla + English) — Single HTML</title>
+<style>
+  :root {
+    --bg:#0b0f19; --fg:#e8ecf3; --muted:#9aa4b2; --brand:#6aa6ff; --card:#121829; --error:#ff5d5d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 20% -10%, #152037 0%, var(--bg) 60%);color:var(--fg);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .container{max-width:920px;margin:28px auto;padding:20px;background:var(--card);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  h1{margin:.2rem 0 1rem 0;font-size:22px}
+  .badge{padding:4px 10px;background:#1a2340;border:1px solid #233054;border-radius:999px;font-size:12px;color:var(--muted)}
+  input,textarea{width:100%;background:#0c1326;color:var(--fg);border:1px solid #233054;border-radius:12px;padding:12px 14px;font-size:15px;outline:none}
+  input[type="password"]{font-family:inherit;letter-spacing:.02em}
+  label{display:block;margin:8px 0 6px 2px;font-size:13px;color:var(--muted)}
+  button{background:linear-gradient(180deg,#7db2ff,#5b91f7);color:#0a0f1e;border:0;padding:10px 16px;border-radius:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(90,140,255,.35)}
+  button.secondary{background:#141e39;color:var(--fg);box-shadow:none;border:1px solid #233054}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .info{margin-top:6px;color:var(--muted);font-size:13px}
+  .panel{margin-top:16px;padding:12px;border:1px dashed #2a3966;border-radius:12px;background:#0d1530}
+  #imageWrap{margin-top:18px;display:grid;gap:12px}
+  .imgCard{position:relative;border:1px solid #233054;background:#0b1226;border-radius:16px;padding:10px}
+  .imgCard img{width:100%;height:auto;display:block;border-radius:10px}
+  .download{position:absolute;bottom:10px;right:12px;background:#0e1a36;border:1px solid #22305a;border-radius:999px;padding:6px 10px;font-size:13px;color:#cfe0ff;display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+  .download svg{width:16px;height:16px}
+  #errorBox{display:none;margin-top:12px;padding:12px;border-radius:12px;background:#2a0f16;color:#ffd4d4;border:1px solid #5b1a25}
+  .spinner{display:none;margin-top:10px}
+  .spinner.on{display:inline-block;width:18px;height:18px;border:2px solid #7ca8ff;border-top-color:transparent;border-radius:999px;animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:700px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="row">
+      <h1>AI Photo Generator</h1>
+      <div class="badge">Bangla + English</div>
+    </div>
+
+    <div class="panel">
+      <div class="grid">
+        <div>
+          <label for="apiKey"><strong>OpenAI API Key</strong> (local testing only)</label>
+          <input id="apiKey" type="password" placeholder="Paste your OpenAI API key (will not be stored)">
+          <div class="info">⚠️ নিরাপত্তার জন্য প্রোডাকশনে ব্রাউজারে API Key ব্যবহার করবেন না। ছোট ব্যাকএন্ড/প্রক্সি ব্যবহার করুন।</div>
+        </div>
+        <div>
+          <label for="model"><strong>Model</strong></label>
+          <input id="model" value="gpt-image-1" />
+          <label for="size" style="margin-top:8px;"><strong>Image size</strong> (e.g., 1024x1024)</label>
+          <input id="size" value="1024x1024" />
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="btnStart" class="secondary">Start</button>
+      <button id="btnEntire">ENTIRE</button>
+      <div id="welcome" class="info"></div>
+    </div>
+
+    <div class="panel">
+      <label for="prompt"><strong>Script / Prompt</strong></label>
+      <textarea id="prompt" rows="4" placeholder="Write your script in Bangla or English… উদাহরণ: একটি দক্ষিণ এশীয় মেয়ের কার্টুন অবতার…"></textarea>
+      <div class="info">Tip: Clicking <strong>ENTIRE</strong> repeatedly will create a different image each time, even with the same script.</div>
+    </div>
+
+    <div id="errorBox"></div>
+    <div class="spinner" id="spinner"></div>
+    <div id="imageWrap"></div>
+  </div>
+
+<script>
+  // ======= Utilities =======
+  const $ = (id)=>document.getElementById(id);
+  const btnStart = $("btnStart");
+  const btnEntire = $("btnEntire");
+  const welcome = $("welcome");
+  const promptInput = $("prompt");
+  const imageWrap = $("imageWrap");
+  const errorBox = $("errorBox");
+  const spinner = $("spinner");
+  const apiKeyInput = $("apiKey");
+  const modelInput = $("model");
+  const sizeInput = $("size");
+
+  function isBanglaText(txt=""){ return /[\u0980-\u09FF]/.test(txt); }
+  function clearError(){ errorBox.style.display="none"; errorBox.textContent=""; }
+  function showError(text){ errorBox.textContent=text; errorBox.style.display="block"; }
+  function clearImage(){ imageWrap.innerHTML=""; }
+  function setBusy(b){ btnStart.disabled=b; btnEntire.disabled=b; spinner.classList.toggle("on", b); }
+  function randomTag(){ return Math.random().toString(36).slice(2,10); }
+
+  // ======= UI Handlers =======
+  btnStart.addEventListener("click", ()=>{
+    clearError();
+    welcome.textContent = "Welcome! Please enter your script below and click ENTIRE to generate a photo.";
+    promptInput.focus();
+  });
+
+  btnEntire.addEventListener("click", async ()=>{
+    clearError(); // error auto-vanish
+    const prompt = promptInput.value.trim();
+    const apiKey = apiKeyInput.value.trim();
+    const model = (modelInput.value || "gpt-image-1").trim();
+    const size  = (sizeInput.value || "1024x1024").trim();
+
+    if(!prompt){
+      showError("Please write a script first.");
+      return;
+    }
+    if(!apiKey){
+      // Localized error about missing key
+      const msg = isBanglaText(prompt)
+        ? "API Key দেওয়া হয়নি। লোকালি টেস্ট করতে কী দিন, বা নিরাপদে একটি ব্যাকএন্ড/প্রক্সি ব্যবহার করুন।"
+        : "No API key provided. For local testing, paste a key, or use a secure backend/proxy.";
+      showError(msg);
+      return;
+    }
+
+    // Auto-vanish previous image
+    clearImage();
+    setBusy(true);
+
+    try{
+      // Ensure a different image each time with a harmless variation tag
+      const promptWithVariation = `${prompt}\n\n[variation:${randomTag()}]`;
+
+      // Call OpenAI Images API directly from browser
+      // NOTE: This may fail due to CORS in many environments; for production use a backend proxy.
+      const resp = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          prompt: promptWithVariation,
+          size,
+          n: 1,
+          response_format: "b64_json"
+        })
+      });
+
+      let json;
+      try { json = await resp.json(); } catch(e){ json = null; }
+
+      if(!resp.ok || !json || !json.data || !json.data[0] || !json.data[0].b64_json){
+        // Localize error message
+        const reason = json?.error?.message || `${resp.status} ${resp.statusText || "Unknown"}`;
+        const msg = isBanglaText(prompt)
+          ? `ইমেজ জেনারেশন ব্যর্থ হয়েছে। কারণ: ${reason}`
+          : `Image generation failed. Reason: ${reason}`;
+        showError(msg);
+        return;
+      }
+
+      const b64 = json.data[0].b64_json;
+      const fileName = `ai-photo-${Date.now()}-${randomTag()}.png`;
+      const imgUrl = `data:image/png;base64,${b64}`;
+
+      const card = document.createElement("div");
+      card.className = "imgCard";
+      const img = document.createElement("img");
+      img.alt = "AI generated image";
+      img.src = imgUrl;
+
+      const a = document.createElement("a");
+      a.className = "download";
+      a.href = imgUrl;
+      a.download = fileName;
+      a.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <span>Download</span>
+      `;
+
+      card.appendChild(img);
+      card.appendChild(a);
+      imageWrap.appendChild(card);
+
+    } catch(err){
+      const msg = isBanglaText(prompt)
+        ? `ইমেজ জেনারেশনে ত্রুটি। কারণ: ${err?.message || "অজানা ত্রুটি"}`
+        : `Image generation error. Reason: ${err?.message || "Unknown error"}`;
+      showError(msg);
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  // Clear previous error automatically when user edits prompt
+  promptInput.addEventListener("input", ()=> clearError());
+</script>
+</body>
+</html>
